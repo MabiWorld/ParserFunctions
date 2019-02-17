@@ -393,7 +393,7 @@ class ExtParserFunctions {
 	 * @return string
 	 */
 	public static function timeCommon(
-		$parser, $frame = null, $format = '', $date = '', $language = '', $local = false
+		$parser, $frame = null, $format = '', $date = '', $language = '', $local = false, $timezone = 'UTC'
 	) {
 		global $wgLocaltimezone;
 		self::registerClearHook();
@@ -438,6 +438,11 @@ class ExtParserFunctions {
 			# UTC is a default input timezone.
 			$dateObject = new DateTime( $date, $utc );
 
+			if ( strpos($format, 'I') !== false ) {
+				$dst = $dateObject->format( 'I' );
+				$format = str_replace( 'I', $dst, $format );
+			}
+
 			# Set output timezone.
 			if ( $local ) {
 				if ( isset( $wgLocaltimezone ) ) {
@@ -446,7 +451,8 @@ class ExtParserFunctions {
 					$tz = new DateTimeZone( date_default_timezone_get() );
 				}
 			} else {
-				$tz = $utc;
+				#$tz = $utc;
+				$tz = new DateTimeZone( $timezone );
 			}
 			$dateObject->setTimezone( $tz );
 			# Generate timestamp
@@ -523,7 +529,14 @@ class ExtParserFunctions {
 		$date = isset( $args[1] ) ? trim( $frame->expand( $args[1] ) ) : '';
 		$language = isset( $args[2] ) ? trim( $frame->expand( $args[2] ) ) : '';
 		$local = isset( $args[3] ) && trim( $frame->expand( $args[3] ) );
-		return self::timeCommon( $parser, $frame, $format, $date, $language, $local );
+
+		$timezone = 'UTC';
+		if ( preg_match( '/ *\btz=(.*) *$/', $format, $matches, PREG_OFFSET_CAPTURE ) ) {
+			$timezone = $matches[1][0];
+			$format = substr($format, 0, $matches[0][1]);
+		}
+ 
+		return self::timeCommon( $parser, $frame, $format, $date, $language, $local, $timezone );
 	}
 
 	/**
