@@ -1,10 +1,22 @@
 <?php
+/**
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ */
 
 use UtfNormal\Validator;
-
-if ( !defined( 'MEDIAWIKI' ) ) {
-	die( 'This file is a MediaWiki extension, it is not a valid entry point' );
-}
 
 // Character classes
 define( 'EXPR_WHITE_CLASS', " \t\r\n" );
@@ -49,22 +61,6 @@ define( 'EXPR_POW', 35 );
 define( 'EXPR_PI', 36 );
 define( 'EXPR_FMOD', 37 );
 define( 'EXPR_SQRT', 38 );
-
-class ExprError extends Exception {
-	/**
-	 * @param $msg string
-	 * @param $parameter string
-	 */
-	public function __construct( $msg, $parameter = '' ) {
-		// Give grep a chance to find the usages:
-		// pfunc_expr_stack_exhausted, pfunc_expr_unexpected_number, pfunc_expr_preg_match_failure,
-		// pfunc_expr_unrecognised_word, pfunc_expr_unexpected_operator, pfunc_expr_missing_operand,
-		// pfunc_expr_unexpected_closing_bracket, pfunc_expr_unrecognised_punctuation,
-		// pfunc_expr_unclosed_bracket, pfunc_expr_division_by_zero, pfunc_expr_invalid_argument,
-		// pfunc_expr_invalid_argument_ln, pfunc_expr_unknown_error, pfunc_expr_not_a_number
-		$this->message = wfMessage( "pfunc_expr_$msg", $parameter )->inContentLanguage()->text();
-	}
-}
 
 class ExprParser {
 	public $maxStackSize = 100;
@@ -176,7 +172,7 @@ class ExprParser {
 	 * The algorithm here is based on the infix to RPN algorithm given in
 	 * http://montcs.bloomu.edu/~bobmon/Information/RPN/infix2rpn.shtml
 	 * It's essentially the same as Dijkstra's shunting yard algorithm.
-	 * @param $expr string
+	 * @param string $expr
 	 * @throws ExprError
 	 * @return string
 	 */
@@ -240,63 +236,57 @@ class ExprParser {
 				}
 				$op = $this->words[$word];
 				switch ( $op ) {
-				// constant
-				case EXPR_EXPONENT:
-					if ( $expecting !== 'expression' ) {
-						continue;
-					}
-					$operands[] = exp( 1 );
-					$expecting = 'operator';
-					continue 2;
-				case EXPR_PI:
-					if ( $expecting !== 'expression' ) {
-						throw new ExprError( 'unexpected_number' );
-					}
-					$operands[] = pi();
-					$expecting = 'operator';
-					continue 2;
-				// Unary operator
-				case EXPR_NOT:
-				case EXPR_SINE:
-				case EXPR_COSINE:
-				case EXPR_TANGENS:
-				case EXPR_ARCSINE:
-				case EXPR_ARCCOS:
-				case EXPR_ARCTAN:
-				case EXPR_EXP:
-				case EXPR_LN:
-				case EXPR_ABS:
-				case EXPR_FLOOR:
-				case EXPR_TRUNC:
-				case EXPR_CEIL:
-				case EXPR_SQRT:
-					if ( $expecting !== 'expression' ) {
-						throw new ExprError( 'unexpected_operator', $word );
-					}
-					$operators[] = $op;
-					continue 2;
+					// constant
+					case EXPR_EXPONENT:
+						if ( $expecting !== 'expression' ) {
+							break;
+						}
+						$operands[] = exp( 1 );
+						$expecting = 'operator';
+						continue 2;
+					case EXPR_PI:
+						if ( $expecting !== 'expression' ) {
+							throw new ExprError( 'unexpected_number' );
+						}
+						$operands[] = pi();
+						$expecting = 'operator';
+						continue 2;
+					// Unary operator
+					case EXPR_NOT:
+					case EXPR_SINE:
+					case EXPR_COSINE:
+					case EXPR_TANGENS:
+					case EXPR_ARCSINE:
+					case EXPR_ARCCOS:
+					case EXPR_ARCTAN:
+					case EXPR_EXP:
+					case EXPR_LN:
+					case EXPR_ABS:
+					case EXPR_FLOOR:
+					case EXPR_TRUNC:
+					case EXPR_CEIL:
+					case EXPR_SQRT:
+						if ( $expecting !== 'expression' ) {
+							throw new ExprError( 'unexpected_operator', $word );
+						}
+						$operators[] = $op;
+						continue 2;
 				}
 				// Binary operator, fall through
 				$name = $word;
-			}
-
-			// Next the two-character operators
- elseif ( $char2 === '<=' ) {
+			} elseif ( $char2 === '<=' ) {
 				$name = $char2;
 				$op = EXPR_LESSEQ;
 				$p += 2;
-	} elseif ( $char2 === '>=' ) {
+			} elseif ( $char2 === '>=' ) {
 				$name = $char2;
 				$op = EXPR_GREATEREQ;
 				$p += 2;
-	} elseif ( $char2 === '<>' || $char2 === '!=' ) {
+			} elseif ( $char2 === '<>' || $char2 === '!=' ) {
 				$name = $char2;
 				$op = EXPR_NOTEQ;
 				$p += 2;
-	}
-
-			// Finally the single-character operators
- elseif ( $char === '+' ) {
+			} elseif ( $char === '+' ) {
 				++$p;
 				if ( $expecting === 'expression' ) {
 					// Unary plus
@@ -306,7 +296,7 @@ class ExprParser {
 					// Binary plus
 					$op = EXPR_PLUS;
 				}
-	} elseif ( $char === '-' ) {
+			} elseif ( $char === '-' ) {
 				++$p;
 				if ( $expecting === 'expression' ) {
 					// Unary minus
@@ -316,26 +306,26 @@ class ExprParser {
 					// Binary minus
 					$op = EXPR_MINUS;
 				}
-	} elseif ( $char === '*' ) {
+			} elseif ( $char === '*' ) {
 				$name = $char;
 				$op = EXPR_TIMES;
 				++$p;
-	} elseif ( $char === '/' ) {
+			} elseif ( $char === '/' ) {
 				$name = $char;
 				$op = EXPR_DIVIDE;
 				++$p;
-	} elseif ( $char === '^' ) {
+			} elseif ( $char === '^' ) {
 				$name = $char;
 				$op = EXPR_POW;
 				++$p;
-	} elseif ( $char === '(' ) {
+			} elseif ( $char === '(' ) {
 				if ( $expecting === 'operator' ) {
 					throw new ExprError( 'unexpected_operator', '(' );
 				}
 				$operators[] = EXPR_OPEN;
 				++$p;
 				continue;
-	} elseif ( $char === ')' ) {
+			} elseif ( $char === ')' ) {
 				$lastOp = end( $operators );
 				while ( $lastOp && $lastOp != EXPR_OPEN ) {
 					$this->doOperation( $lastOp, $operands );
@@ -350,21 +340,22 @@ class ExprParser {
 				$expecting = 'operator';
 				++$p;
 				continue;
-	} elseif ( $char === '=' ) {
+			} elseif ( $char === '=' ) {
 				$name = $char;
 				$op = EXPR_EQUALITY;
 				++$p;
-	} elseif ( $char === '<' ) {
+			} elseif ( $char === '<' ) {
 				$name = $char;
 				$op = EXPR_LESS;
 				++$p;
-	} elseif ( $char === '>' ) {
+			} elseif ( $char === '>' ) {
 				$name = $char;
 				$op = EXPR_GREATER;
 				++$p;
-	} else {
-				throw new ExprError( 'unrecognised_punctuation', Validator::cleanUp( $char ) );
-	}
+			} else {
+				$utfExpr = Validator::cleanUp( substr( $expr, $p ) );
+				throw new ExprError( 'unrecognised_punctuation', mb_substr( $utfExpr, 0, 1 ) );
+			}
 
 			// Binary operator processing
 			if ( $expecting === 'expression' ) {
@@ -396,8 +387,8 @@ class ExprParser {
 	}
 
 	/**
-	 * @param $op int
-	 * @param $stack array
+	 * @param int $op
+	 * @param array &$stack
 	 * @throws ExprError
 	 */
 	public function doOperation( $op, &$stack ) {
