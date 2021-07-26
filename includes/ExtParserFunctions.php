@@ -410,7 +410,7 @@ class ExtParserFunctions {
 			$date = $timestamp->getTimestamp( TS_ISO_8601 );
 			$useTTL = true;
 		} else {
-			$cacheKey = $date;
+			$cacheKey = $date . $timezone;
 			$useTTL = false;
 		}
 		if ( isset( self::$mTimeCache[$format][$cacheKey][$language][$local] ) ) {
@@ -496,7 +496,19 @@ class ExtParserFunctions {
 						// $ttl is passed by reference, which doesn't work right on stub objects
 						StubObject::unstub( $langObject );
 					}
+
+					$replace_S = false;
+					if ( strpos($format, 'S') !== false ) {
+						$format = str_replace( 'S', '"{S}"', $format );
+						$replace_S = true;
+					}
+
 					$result = $langObject->sprintfDate( $format, $ts, $tz, $ttl );
+
+					if ( $replace_S ) {
+						$ordinal = $dateObject->format( 'S' );
+						$result = str_replace( '{S}', $ordinal, $result );
+					}
 				} else {
 					return '<strong class="error">' .
 						wfMessage( 'pfunc_time_too_big' )->inContentLanguage()->escaped() .
@@ -767,7 +779,7 @@ class ExtParserFunctions {
 	}
 
 	/**
-	 * {{#replace:string | from | to | limit }}
+	 * {{#replace:string | from | to | limit | regex? }}
 	 *
 	 * Replaces each occurrence of "from" in "string" with "to".
 	 * At most "limit" replacements are performed.
@@ -782,7 +794,7 @@ class ExtParserFunctions {
 	 * @return mixed|string
 	 */
 	public static function runReplace( $parser, $inStr = '',
-			$inReplaceFrom = '', $inReplaceTo = '', $inLimit = -1 ) {
+			$inReplaceFrom = '', $inReplaceTo = '', $inLimit = -1, $isRegex = '' ) {
 		global $wgPFStringLengthLimit;
 
 		$inStr = $parser->killMarkers( (string)$inStr );
@@ -807,7 +819,7 @@ class ExtParserFunctions {
 			$limit = -1;
 		}
 
-		$inLimit = (int)$inLimit;
+		$inLimit = $inLimit == '' ? -1 : (int)$inLimit;
 		if ( $inLimit >= 0 ) {
 			if ( $limit > $inLimit || $limit == -1 ) {
 				$limit = $inLimit;
@@ -815,8 +827,12 @@ class ExtParserFunctions {
 		}
 
 		// Use regex to allow limit and handle UTF-8 correctly.
-		$inReplaceFrom = preg_quote( $inReplaceFrom, '/' );
-		$inReplaceTo = StringUtils::escapeRegexReplacement( $inReplaceTo );
+		if ( $isRegex == '' ) {
+			$inReplaceFrom = preg_quote( $inReplaceFrom, '/' );
+			$inReplaceTo = StringUtils::escapeRegexReplacement( $inReplaceTo );
+		} else {
+			$inReplaceFrom = str_replace( '/', '\\/', $inReplaceFrom );
+		}
 
 		$result = preg_replace( '/' . $inReplaceFrom . '/u',
 						$inReplaceTo, $inStr, $limit );
