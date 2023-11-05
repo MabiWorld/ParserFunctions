@@ -435,6 +435,10 @@ class ExtParserFunctions {
 
 			# Default input timezone is UTC.
 			$utc = new DateTimeZone( 'UTC' );
+			$tmp = explode(' ', $date);
+			$potential_tz = end($tmp);
+			$tz = timezone_open($potential_tz);
+			if ($tz === false) $tz = $utc;
 
 			# Correct for DateTime interpreting 'XXXX' as XX:XX o'clock
 			if ( preg_match( '/^[0-9]{4}$/', $date ) ) {
@@ -443,12 +447,17 @@ class ExtParserFunctions {
 
 			# Parse date
 			# UTC is a default input timezone.
-			$dateObject = new DateTime( $date, $utc );
+			$dateObject = new DateTime( $date, $tz );
 
 			if ( strpos($format, 'I') !== false ) {
 				$dst = $dateObject->format( 'I' );
 				$format = str_replace( 'I', $dst, $format );
 			}
+			if ( strpos($format, 'S') !== false ) {
+				$ordinal = $dateObject->format( 'S' );
+				$format = str_replace( 'S', "\"${ordinal}\"", $format );
+			}
+
 
 			# Set output timezone.
 			if ( $local ) {
@@ -497,18 +506,7 @@ class ExtParserFunctions {
 						StubObject::unstub( $langObject );
 					}
 
-					$replace_S = false;
-					if ( strpos($format, 'S') !== false ) {
-						$format = str_replace( 'S', '"{S}"', $format );
-						$replace_S = true;
-					}
-
 					$result = $langObject->sprintfDate( $format, $ts, $tz, $ttl );
-
-					if ( $replace_S ) {
-						$ordinal = $dateObject->format( 'S' );
-						$result = str_replace( '{S}', $ordinal, $result );
-					}
 				} else {
 					return '<strong class="error">' .
 						wfMessage( 'pfunc_time_too_big' )->inContentLanguage()->escaped() .
