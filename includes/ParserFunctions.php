@@ -1,32 +1,47 @@
 <?php
 
+namespace MediaWiki\Extensions\ParserFunctions;
+
+use DateTime;
+use DateTimeZone;
+use Exception;
+use ILanguageConverter;
+use Language;
 use MediaWiki\MediaWikiServices;
+use MWTimestamp;
+use Parser;
+use PPFrame;
+use PPNode;
+use Sanitizer;
+use StringUtils;
+use StubObject;
+use Title;
 
-class ExtParserFunctions {
-	public static $mExprParser;
-	public static $mTimeCache = [];
-	public static $mTimeChars = 0;
-	public static $mMaxTimeChars = 6000; # ~10 seconds
+/**
+ * Parser function handlers
+ *
+ * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions
+ */
+class ParserFunctions {
+	private static $mExprParser;
+	private static $mTimeCache = [];
+	private static $mTimeChars = 0;
 
-	/**
-	 * @param Parser $parser
-	 * @return bool
-	 */
-	public static function clearState( $parser ) {
-		self::$mTimeChars = 0;
-		return true;
-	}
+	/** ~10 seconds */
+	private const MAX_TIME_CHARS = 6000;
 
 	/**
 	 * Register ParserClearState hook.
 	 * We defer this until needed to avoid the loading of the code of this file
 	 * when no parser function is actually called.
 	 */
-	public static function registerClearHook() {
+	private static function registerClearHook() {
 		static $done = false;
 		if ( !$done ) {
 			global $wgHooks;
-			$wgHooks['ParserClearState'][] = __CLASS__ . '::clearState';
+			$wgHooks['ParserClearState'][] = function () {
+				self::$mTimeChars = 0;
+			};
 			$done = true;
 		}
 	}
@@ -34,7 +49,7 @@ class ExtParserFunctions {
 	/**
 	 * @return ExprParser
 	 */
-	public static function &getExprParser() {
+	private static function &getExprParser() {
 		if ( !isset( self::$mExprParser ) ) {
 			self::$mExprParser = new ExprParser;
 		}
@@ -42,65 +57,65 @@ class ExtParserFunctions {
 	}
 
 	/**
+	 * {{#expr: expression }}
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##expr
+	 *
 	 * @param Parser $parser
 	 * @param string $expr
 	 * @return string
 	 */
-	public static function expr( $parser, $expr = '' ) {
+	public static function expr( Parser $parser, $expr = '' ) {
 		try {
 			return self::getExprParser()->doExpression( $expr );
 		} catch ( ExprError $e ) {
-			return '<strong class="error">' . htmlspecialchars( $e->getMessage() ) . '</strong>';
+			return '<strong class="error">' . htmlspecialchars( $e->getUserFriendlyMessage() ) . '</strong>';
 		}
 	}
 
 	/**
-	 * @param Parser $parser
-	 * @param string $expr
-	 * @param string $then
-	 * @param string $else
-	 * @return string
-	 */
-	public static function ifexpr( $parser, $expr = '', $then = '', $else = '' ) {
-		try {
-			$ret = self::getExprParser()->doExpression( $expr );
-			if ( is_numeric( $ret ) ) {
-				$ret = (float)$ret;
-			}
-			if ( $ret ) {
-				return $then;
-			} else {
-				return $else;
-			}
-		} catch ( ExprError $e ) {
-			return '<strong class="error">' . htmlspecialchars( $e->getMessage() ) . '</strong>';
-		}
-	}
-
-	/**
+	 * {{#ifexpr: expression | value if true | value if false }}
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##ifexpr
+	 *
 	 * @param Parser $parser
 	 * @param PPFrame $frame
 	 * @param array $args
 	 * @return string
 	 */
-	public static function ifexprObj( $parser, $frame, $args ) {
+	public static function ifexpr( Parser $parser, PPFrame $frame, array $args ) {
 		$expr = isset( $args[0] ) ? trim( $frame->expand( $args[0] ) ) : '';
-		$then = isset( $args[1] ) ? $args[1] : '';
-		$else = isset( $args[2] ) ? $args[2] : '';
-		$result = self::ifexpr( $parser, $expr, $then, $else );
+		$then = $args[1] ?? '';
+		$else = $args[2] ?? '';
+
+		try {
+			$result = self::getExprParser()->doExpression( $expr );
+			if ( is_numeric( $result ) ) {
+				$result = (float)$result;
+			}
+			$result = $result ? $then : $else;
+		} catch ( ExprError $e ) {
+			return '<strong class="error">' . htmlspecialchars( $e->getUserFriendlyMessage() ) . '</strong>';
+		}
+
 		if ( is_object( $result ) ) {
 			$result = trim( $frame->expand( $result ) );
 		}
+
 		return $result;
 	}
 
 	/**
+	 * {{#if: test string | value if test string is not empty | value if test string is empty }}
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##if
+	 *
 	 * @param Parser $parser
 	 * @param PPFrame $frame
 	 * @param array $args
 	 * @return string
 	 */
-	public static function ifObj( $parser, $frame, $args ) {
+	public static function if( Parser $parser, PPFrame $frame, array $args ) {
 		$test = isset( $args[0] ) ? trim( $frame->expand( $args[0] ) ) : '';
 		if ( $test !== '' ) {
 			return isset( $args[1] ) ? trim( $frame->expand( $args[1] ) ) : '';
@@ -110,12 +125,16 @@ class ExtParserFunctions {
 	}
 
 	/**
+	 * {{#ifeq: string 1 | string 2 | value if identical | value if different }}
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##ifeq
+	 *
 	 * @param Parser $parser
 	 * @param PPFrame $frame
 	 * @param array $args
 	 * @return string
 	 */
-	public static function ifeqObj( $parser, $frame, $args ) {
+	public static function ifeq( Parser $parser, PPFrame $frame, array $args ) {
 		$left = isset( $args[0] ) ? self::decodeTrimExpand( $args[0], $frame ) : '';
 		$right = isset( $args[1] ) ? self::decodeTrimExpand( $args[1], $frame ) : '';
 
@@ -129,50 +148,56 @@ class ExtParserFunctions {
 	}
 
 	/**
+	 * {{#iferror: test string | value if error | value if no error }}
+	 *
+	 * Error is when the input string contains an HTML object with class="error", as
+	 * generated by other parser functions such as #expr, #time and #rel2abs.
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##iferror
+	 *
 	 * @param Parser $parser
-	 * @param string $test
-	 * @param string $then
-	 * @param bool $else
-	 * @return bool|string
+	 * @param PPFrame $frame
+	 * @param array $args
+	 * @return string
 	 */
-	public static function iferror( $parser, $test = '', $then = '', $else = false ) {
+	public static function iferror( Parser $parser, PPFrame $frame, array $args ) {
+		$test = isset( $args[0] ) ? trim( $frame->expand( $args[0] ) ) : '';
+		$then = $args[1] ?? false;
+		$else = $args[2] ?? false;
+
 		if ( preg_match(
 			'/<(?:strong|span|p|div)\s(?:[^\s>]*\s+)*?class="(?:[^"\s>]*\s+)*?error(?:\s[^">]*)?"/',
 			$test )
 		) {
-			return $then;
+			$result = $then;
 		} elseif ( $else === false ) {
-			return $test;
+			$result = $test;
 		} else {
-			return $else;
+			$result = $else;
 		}
-	}
-
-	/**
-	 * @param Parser $parser
-	 * @param PPFrame $frame
-	 * @param array $args
-	 * @return string
-	 */
-	public static function iferrorObj( $parser, $frame, $args ) {
-		$test = isset( $args[0] ) ? trim( $frame->expand( $args[0] ) ) : '';
-		$then = isset( $args[1] ) ? $args[1] : false;
-		$else = isset( $args[2] ) ? $args[2] : false;
-		$result = self::iferror( $parser, $test, $then, $else );
 		if ( $result === false ) {
 			return '';
-		} else {
-			return trim( $frame->expand( $result ) );
 		}
+
+		return trim( $frame->expand( $result ) );
 	}
 
 	/**
+	 * {{#switch: comparison string
+	 * | case = result
+	 * | case = result
+	 * | ...
+	 * | default result
+	 * }}
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##switch
+	 *
 	 * @param Parser $parser
 	 * @param PPFrame $frame
 	 * @param array $args
 	 * @return string
 	 */
-	public static function switchObj( $parser, $frame, $args ) {
+	public static function switch( Parser $parser, PPFrame $frame, array $args ) {
 		if ( count( $args ) === 0 ) {
 			return '';
 		}
@@ -181,11 +206,7 @@ class ExtParserFunctions {
 		$default = null;
 		$lastItemHadNoEquals = false;
 		$lastItem = '';
-		if ( class_exists( MagicWordFactory::class ) ) {
-			$mwDefault = $parser->getMagicWordFactory()->get( 'default' );
-		} else {
-			$mwDefault = MagicWord::get( 'default' );
-		}
+		$mwDefault = $parser->getMagicWordFactory()->get( 'default' );
 		foreach ( $args as $arg ) {
 			$bits = $arg->splitArg();
 			$nameNode = $bits['name'];
@@ -227,7 +248,7 @@ class ExtParserFunctions {
 		# Check if the last item had no = sign, thus specifying the default case
 		if ( $lastItemHadNoEquals ) {
 			return $lastItem;
-		} elseif ( !is_null( $default ) ) {
+		} elseif ( $default !== null ) {
 			return trim( $frame->expand( $default ) );
 		} else {
 			return '';
@@ -235,11 +256,15 @@ class ExtParserFunctions {
 	}
 
 	/**
+	 * {{#rel2abs: path }} or {{#rel2abs: path | base path }}
+	 *
 	 * Returns the absolute path to a subpage, relative to the current article
 	 * title. Treats titles as slash-separated paths.
 	 *
 	 * Following subpage link syntax instead of standard path syntax, an
 	 * initial slash is treated as a relative path, and vice versa.
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##rel2abs
 	 *
 	 * @param Parser $parser
 	 * @param string $to
@@ -247,7 +272,7 @@ class ExtParserFunctions {
 	 *
 	 * @return string
 	 */
-	public static function rel2abs( $parser, $to = '', $from = '' ) {
+	public static function rel2abs( Parser $parser, $to = '', $from = '' ) {
 		$from = trim( $from );
 		if ( $from === '' ) {
 			$from = $parser->getTitle()->getPrefixedText();
@@ -311,12 +336,12 @@ class ExtParserFunctions {
 	 *
 	 * @return string
 	 */
-	public static function ifexistCommon(
-		$parser, $frame, $titletext = '', $then = '', $else = ''
+	private static function ifexistInternal(
+		Parser $parser, PPFrame $frame, $titletext = '', $then = '', $else = ''
 	) {
-		global $wgContLang;
 		$title = Title::newFromText( $titletext );
-		$wgContLang->findVariantLink( $titletext, $title, true );
+		self::getLanguageConverter( $parser->getContentLanguage() )
+			->findVariantLink( $titletext, $title, true );
 		if ( $title ) {
 			if ( $title->getNamespace() === NS_MEDIA ) {
 				/* If namespace is specified as NS_MEDIA, then we want to
@@ -325,11 +350,11 @@ class ExtParserFunctions {
 				if ( !$parser->incrementExpensiveFunctionCount() ) {
 					return $else;
 				}
-				$file = wfFindFile( $title );
+				$file = MediaWikiServices::getInstance()->getRepoGroup()->findFile( $title );
 				if ( !$file ) {
 					return $else;
 				}
-				$parser->mOutput->addImage(
+				$parser->getOutput()->addImage(
 					$file->getName(), $file->getTimestamp(), $file->getSha1() );
 				return $file->exists() ? $then : $else;
 			} elseif ( $title->isSpecialPage() ) {
@@ -347,20 +372,20 @@ class ExtParserFunctions {
 				return $else;
 			} else {
 				$pdbk = $title->getPrefixedDBkey();
-				$lc = LinkCache::singleton();
+				$lc = MediaWikiServices::getInstance()->getLinkCache();
 				$id = $lc->getGoodLinkID( $pdbk );
 				if ( $id !== 0 ) {
-					$parser->mOutput->addLink( $title, $id );
+					$parser->getOutput()->addLink( $title, $id );
 					return $then;
 				} elseif ( $lc->isBadLink( $pdbk ) ) {
-					$parser->mOutput->addLink( $title, 0 );
+					$parser->getOutput()->addLink( $title, 0 );
 					return $else;
 				}
 				if ( !$parser->incrementExpensiveFunctionCount() ) {
 					return $else;
 				}
 				$id = $title->getArticleID();
-				$parser->mOutput->addLink( $title, $id );
+				$parser->getOutput()->addLink( $title, $id );
 
 				// bug 70495: don't just check whether the ID != 0
 				if ( $title->exists() ) {
@@ -372,17 +397,21 @@ class ExtParserFunctions {
 	}
 
 	/**
+	 * {{#ifexist: page title | value if exists | value if doesn't exist }}
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##ifexist
+	 *
 	 * @param Parser $parser
 	 * @param PPFrame $frame
 	 * @param array $args
 	 * @return string
 	 */
-	public static function ifexistObj( $parser, $frame, $args ) {
+	public static function ifexist( Parser $parser, PPFrame $frame, array $args ) {
 		$title = isset( $args[0] ) ? trim( $frame->expand( $args[0] ) ) : '';
-		$then = isset( $args[1] ) ? $args[1] : null;
-		$else = isset( $args[2] ) ? $args[2] : null;
+		$then = $args[1] ?? null;
+		$else = $args[2] ?? null;
 
-		$result = self::ifexistCommon( $parser, $frame, $title, $then, $else );
+		$result = self::ifexistInternal( $parser, $frame, $title, $then, $else );
 		if ( $result === null ) {
 			return '';
 		} else {
@@ -391,6 +420,8 @@ class ExtParserFunctions {
 	}
 
 	/**
+	 * Used by time() and localTime()
+	 *
 	 * @param Parser $parser
 	 * @param PPFrame|null $frame
 	 * @param string $format
@@ -400,7 +431,7 @@ class ExtParserFunctions {
 	 * @return string
 	 */
 	public static function timeCommon(
-		$parser, $frame = null, $format = '', $date = '', $language = '', $local = false, $timezone = 'UTC'
+		Parser $parser, PPFrame $frame = null, $format = '', $date = '', $language = '', $local = false, $timezone = 'UTC'
 	) {
 		global $wgLocaltimezone;
 		self::registerClearHook();
@@ -415,9 +446,7 @@ class ExtParserFunctions {
 		}
 		if ( isset( self::$mTimeCache[$format][$cacheKey][$language][$local] ) ) {
 			$cachedVal = self::$mTimeCache[$format][$cacheKey][$language][$local];
-			if ( $useTTL
-				&& $cachedVal[1] !== null && $frame && is_callable( [ $frame, 'setTTL' ] )
-			) {
+			if ( $useTTL && $cachedVal[1] !== null && $frame ) {
 				$frame->setTTL( $cachedVal[1] );
 			}
 			return $cachedVal[0];
@@ -486,7 +515,7 @@ class ExtParserFunctions {
 				'</strong>';
 		} else {
 			self::$mTimeChars += strlen( $format );
-			if ( self::$mTimeChars > self::$mMaxTimeChars ) {
+			if ( self::$mTimeChars > self::MAX_TIME_CHARS ) {
 				return '<strong class="error">' .
 					wfMessage( 'pfunc_time_too_long' )->inContentLanguage()->escaped() .
 					'</strong>';
@@ -515,33 +544,25 @@ class ExtParserFunctions {
 			}
 		}
 		self::$mTimeCache[$format][$cacheKey][$language][$local] = [ $result, $ttl ];
-		if ( $useTTL && $ttl !== null && $frame && is_callable( [ $frame, 'setTTL' ] ) ) {
+		if ( $useTTL && $ttl !== null && $frame ) {
 			$frame->setTTL( $ttl );
 		}
 		return $result;
 	}
 
 	/**
-	 * @param Parser $parser
-	 * @param string $format
-	 * @param string $date
-	 * @param string $language
-	 * @param string|bool $local
-	 * @return string
-	 */
-	public static function time(
-		$parser, $format = '', $date = '', $language = '', $local = false
-	) {
-		return self::timeCommon( $parser, null, $format, $date, $language, $local );
-	}
-
-	/**
+	 * {{#time: format string }}
+	 * {{#time: format string | date/time object }}
+	 * {{#time: format string | date/time object | language code }}
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##time
+	 *
 	 * @param Parser $parser
 	 * @param PPFrame $frame
 	 * @param array $args
 	 * @return string
 	 */
-	public static function timeObj( $parser, $frame, $args ) {
+	public static function time( Parser $parser, PPFrame $frame, array $args ) {
 		$format = isset( $args[0] ) ? trim( $frame->expand( $args[0] ) ) : '';
 		$date = isset( $args[1] ) ? trim( $frame->expand( $args[1] ) ) : '';
 		$language = isset( $args[2] ) ? trim( $frame->expand( $args[2] ) ) : '';
@@ -557,23 +578,19 @@ class ExtParserFunctions {
 	}
 
 	/**
-	 * @param Parser $parser
-	 * @param string $format
-	 * @param string $date
-	 * @param string $language
-	 * @return string
-	 */
-	public static function localTime( $parser, $format = '', $date = '', $language = '' ) {
-		return self::timeCommon( $parser, null, $format, $date, $language, true );
-	}
-
-	/**
+	 * {{#timel: ... }}
+	 *
+	 * Identical to {{#time: ... }}, except that it uses the local time of the wiki
+	 * (as set in $wgLocaltimezone) when no date is given.
+	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##timel
+	 *
 	 * @param Parser $parser
 	 * @param PPFrame $frame
 	 * @param array $args
 	 * @return string
 	 */
-	public static function localTimeObj( $parser, $frame, $args ) {
+	public static function localTime( Parser $parser, PPFrame $frame, array $args ) {
 		$format = isset( $args[0] ) ? trim( $frame->expand( $args[0] ) ) : '';
 		$date = isset( $args[1] ) ? trim( $frame->expand( $args[1] ) ) : '';
 		$language = isset( $args[2] ) ? trim( $frame->expand( $args[2] ) ) : '';
@@ -584,13 +601,15 @@ class ExtParserFunctions {
 	 * Obtain a specified number of slash-separated parts of a title,
 	 * e.g. {{#titleparts:Hello/World|1}} => "Hello"
 	 *
+	 * @link https://www.mediawiki.org/wiki/Help:Extension:ParserFunctions##titleparts
+	 *
 	 * @param Parser $parser Parent parser
 	 * @param string $title Title to split
 	 * @param int $parts Number of parts to keep
 	 * @param int $offset Offset starting at 1
 	 * @return string
 	 */
-	public static function titleparts( $parser, $title = '', $parts = 0, $offset = 0 ) {
+	public static function titleparts( Parser $parser, $title = '', $parts = 0, $offset = 0 ) {
 		$parts = (int)$parts;
 		$offset = (int)$offset;
 		$ntitle = Title::newFromText( $title );
@@ -614,7 +633,8 @@ class ExtParserFunctions {
 	}
 
 	/**
-	 *  Verifies parameter is less than max string length.
+	 * Verifies parameter is less than max string length.
+	 *
 	 * @param string $text
 	 * @return bool
 	 */
@@ -624,7 +644,7 @@ class ExtParserFunctions {
 	}
 
 	/**
-	 * Generates error message.  Called when string is too long.
+	 * Generates error message. Called when string is too long.
 	 * @return string
 	 */
 	private static function tooLongError() {
@@ -637,11 +657,12 @@ class ExtParserFunctions {
 	 * {{#len:string}}
 	 *
 	 * Reports number of characters in string.
+	 *
 	 * @param Parser $parser
 	 * @param string $inStr
 	 * @return int
 	 */
-	public static function runLen( $parser, $inStr = '' ) {
+	public static function runLen( Parser $parser, $inStr = '' ) {
 		$inStr = $parser->killMarkers( (string)$inStr );
 		return mb_strlen( $inStr );
 	}
@@ -659,7 +680,7 @@ class ExtParserFunctions {
 	 * @param int $inOffset
 	 * @return int|string
 	 */
-	public static function runPos( $parser, $inStr = '', $inNeedle = '', $inOffset = 0 ) {
+	public static function runPos( Parser $parser, $inStr = '', $inNeedle = '', $inOffset = 0 ) {
 		$inStr = $parser->killMarkers( (string)$inStr );
 		$inNeedle = $parser->killMarkers( (string)$inNeedle );
 
@@ -692,7 +713,7 @@ class ExtParserFunctions {
 	 * @param int|string $inNeedle
 	 * @return int|string
 	 */
-	public static function runRPos( $parser, $inStr = '', $inNeedle = '' ) {
+	public static function runRPos( Parser $parser, $inStr = '', $inNeedle = '' ) {
 		$inStr = $parser->killMarkers( (string)$inStr );
 		$inNeedle = $parser->killMarkers( (string)$inNeedle );
 
@@ -731,7 +752,7 @@ class ExtParserFunctions {
 	 * @param int $inLength
 	 * @return string
 	 */
-	public static function runSub( $parser, $inStr = '', $inStart = 0, $inLength = 0 ) {
+	public static function runSub( Parser $parser, $inStr = '', $inStart = 0, $inLength = 0 ) {
 		$inStr = $parser->killMarkers( (string)$inStr );
 
 		if ( !self::checkLength( $inStr ) ) {
@@ -753,12 +774,13 @@ class ExtParserFunctions {
 	 * Returns number of occurrences of "substr" in "string".
 	 *
 	 * Note: If "substr" is empty, a single space is used.
+	 *
 	 * @param Parser $parser
 	 * @param string $inStr
 	 * @param string $inSubStr
 	 * @return int|string
 	 */
-	public static function runCount( $parser, $inStr = '', $inSubStr = '' ) {
+	public static function runCount( Parser $parser, $inStr = '', $inSubStr = '' ) {
 		$inStr = $parser->killMarkers( (string)$inStr );
 		$inSubStr = $parser->killMarkers( (string)$inSubStr );
 
@@ -784,6 +806,7 @@ class ExtParserFunctions {
 	 *
 	 * Note: Armored against replacements that would generate huge strings.
 	 * Note: If "from" is an empty string, single space is used instead.
+	 *
 	 * @param Parser $parser
 	 * @param string $inStr
 	 * @param string $inReplaceFrom
@@ -791,7 +814,7 @@ class ExtParserFunctions {
 	 * @param int $inLimit
 	 * @return mixed|string
 	 */
-	public static function runReplace( $parser, $inStr = '',
+	public static function runReplace( Parser $parser, $inStr = '',
 			$inReplaceFrom = '', $inReplaceTo = '', $inLimit = -1, $isRegex = '' ) {
 		global $wgPFStringLengthLimit;
 
@@ -851,6 +874,7 @@ class ExtParserFunctions {
 	 * Note: Negative position can be used to specify tokens from the end.
 	 * Note: If the divider is an empty string, single space is used instead.
 	 * Note: Empty string is returned if there are not enough exploded chunks.
+	 *
 	 * @param Parser $parser
 	 * @param string $inStr
 	 * @param string $inDiv
@@ -859,7 +883,7 @@ class ExtParserFunctions {
 	 * @return string
 	 */
 	public static function runExplode(
-		$parser, $inStr = '', $inDiv = '', $inPos = 0, $inLim = null
+		Parser $parser, $inStr = '', $inDiv = '', $inPos = 0, $inLim = null
 	) {
 		$inStr = $parser->killMarkers( (string)$inStr );
 		$inDiv = $parser->killMarkers( (string)$inDiv );
@@ -892,11 +916,12 @@ class ExtParserFunctions {
 	 * {{#urldecode:string}}
 	 *
 	 * Decodes URL-encoded (like%20that) strings.
+	 *
 	 * @param Parser $parser
 	 * @param string $inStr
 	 * @return string
 	 */
-	public static function runUrlDecode( $parser, $inStr = '' ) {
+	public static function runUrlDecode( Parser $parser, $inStr = '' ) {
 		$inStr = $parser->killMarkers( (string)$inStr );
 		if ( !self::checkLength( $inStr ) ) {
 			return self::tooLongError();
@@ -913,13 +938,24 @@ class ExtParserFunctions {
 	 *
 	 * @param PPNode|string $obj Thing to expand
 	 * @param PPFrame $frame
-	 * @param string &$trimExpanded Expanded and trimmed version of PPNode,
+	 * @param string|null &$trimExpanded Expanded and trimmed version of PPNode,
 	 *   but with char refs intact
 	 * @return string The trimmed, expanded and entity reference decoded version of the PPNode
 	 */
-	private static function decodeTrimExpand( $obj, $frame, &$trimExpanded = null ) {
+	private static function decodeTrimExpand( $obj, PPFrame $frame, &$trimExpanded = null ) {
 		$expanded = $frame->expand( $obj );
 		$trimExpanded = trim( $expanded );
 		return trim( Sanitizer::decodeCharReferences( $expanded ) );
+	}
+
+	/**
+	 * @since 1.35
+	 * @param Language $language
+	 * @return ILanguageConverter
+	 */
+	private static function getLanguageConverter( Language $language ) : ILanguageConverter {
+		return MediaWikiServices::getInstance()
+			->getLanguageConverterFactory()
+			->getLanguageConverter( $language );
 	}
 }

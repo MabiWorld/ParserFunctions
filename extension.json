@@ -12,13 +12,16 @@
 	"license-name": "GPL-2.0-or-later",
 	"type": "parserhook",
 	"requires": {
-		"MediaWiki": ">= 1.32.0"
+		"MediaWiki": ">= 1.35.0"
 	},
 	"config": {
-		"PFEnableStringFunctions": false,
-		"PFStringLengthLimit": 1000
+		"PFEnableStringFunctions": {
+			"value": false
+		},
+		"PFStringLengthLimit": {
+			"value": 1000
+		}
 	},
-	"callback": "ParserFunctionsHooks::onRegistration",
 	"ExtensionMessagesFiles": {
 		"ParserFunctionsMagic": "ParserFunctions.i18n.magic.php"
 	},
@@ -28,19 +31,20 @@
 		]
 	},
 	"Hooks": {
-		"ParserFirstCallInit": [
-			"ParserFunctionsHooks::onParserFirstCallInit"
-		],
-		"ScribuntoExternalLibraries": [
-			"ParserFunctionsHooks::onScribuntoExternalLibraries"
-		]
+		"ParserTestGlobals": "ParserFunctionsHookHandler",
+		"ParserFirstCallInit": "ParserFunctionsHookHandler",
+		"ScribuntoExternalLibraries": "MediaWiki\\Extensions\\ParserFunctions\\Hooks::onScribuntoExternalLibraries"
 	},
-	"AutoloadClasses": {
-		"ExtParserFunctions": "includes/ExtParserFunctions.php",
-		"ExprParser": "includes/ExprParser.php",
-		"ExprError": "includes/ExprError.php",
-		"Scribunto_LuaParserFunctionsLibrary": "includes/Scribunto_LuaParserFunctionsLibrary.php",
-		"ParserFunctionsHooks": "includes/ParserFunctionsHooks.php"
+	"HookHandlers": {
+		"ParserFunctionsHookHandler": {
+			"class": "MediaWiki\\Extensions\\ParserFunctions\\Hooks",
+			"services": [
+				"MainConfig"
+			]
+		}
 	},
-	"manifest_version": 1
+	"AutoloadNamespaces": {
+		"MediaWiki\\Extensions\\ParserFunctions\\": "includes/"
+	},
+	"manifest_version": 2
 }
