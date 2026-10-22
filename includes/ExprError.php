@@ -16,10 +16,10 @@
  *
  */
 
-namespace MediaWiki\Extensions\ParserFunctions;
+namespace MediaWiki\Extension\ParserFunctions;
 
 use Exception;
-use Message;
+use MediaWiki\Message\Message;
 
 class ExprError extends Exception {
 	/** @var Message */

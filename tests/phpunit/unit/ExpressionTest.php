@@ -1,11 +1,11 @@
 <?php
 
-use MediaWiki\Extensions\ParserFunctions\ExprError;
-use MediaWiki\Extensions\ParserFunctions\ExprParser;
+use MediaWiki\Extension\ParserFunctions\ExprError;
+use MediaWiki\Extension\ParserFunctions\ExprParser;
 
 /**
  * @group ParserFunctions
- * @covers \MediaWiki\Extensions\ParserFunctions\ExprParser
+ * @covers \MediaWiki\Extension\ParserFunctions\ExprParser
  */
 class ExpressionTest extends MediaWikiUnitTestCase {
 
@@ -20,7 +20,7 @@ class ExpressionTest extends MediaWikiUnitTestCase {
 		);
 	}
 
-	public function provideExpressions() {
+	public static function provideExpressions() {
 		return [
 			[ '1 or 0', '1' ],
 			[ 'not (1 and 0)', '1' ],
@@ -90,7 +90,7 @@ class ExpressionTest extends MediaWikiUnitTestCase {
 		$parser->doExpression( $input );
 	}
 
-	public function provideExpressionThrows() {
+	public static function provideExpressionThrows() {
 		$longExpression = str_repeat( 'ln(', 1001 ) . '1' . str_repeat( ')', 1001 );
 		return [
 			'Expression too long' => [ $longExpression ],

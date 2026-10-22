@@ -16,7 +16,7 @@
  *
  */
 
-namespace MediaWiki\Extensions\ParserFunctions;
+namespace MediaWiki\Extension\ParserFunctions;
 
 use UtfNormal\Validator;
 
@@ -379,7 +379,7 @@ class ExprParser {
 		}
 
 		// Finish off the operator array
-		// phpcs:ignore MediaWiki.ControlStructures.AssignmentInControlStructures.AssignmentInControlStructures
+		// phpcs:ignore Generic.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition
 		while ( $op = array_pop( $operators ) ) {
 			if ( $op === self::EXPR_OPEN ) {
 				throw new ExprError( 'unclosed_bracket' );
@@ -416,7 +416,7 @@ class ExprParser {
 				$right = array_pop( $stack );
 				$left = array_pop( $stack );
 				$stack[] = $left * $right;
-					break;
+				break;
 			case self::EXPR_DIVIDE:
 				if ( count( $stack ) < 2 ) {
 					throw new ExprError( 'missing_operand', self::NAMES[$op] );
@@ -443,8 +443,8 @@ class ExprParser {
 				if ( count( $stack ) < 2 ) {
 					throw new ExprError( 'missing_operand', self::NAMES[$op] );
 				}
-				$right = (double)array_pop( $stack );
-				$left = (double)array_pop( $stack );
+				$right = (float)array_pop( $stack );
+				$left = (float)array_pop( $stack );
 				if ( !$right ) {
 					throw new ExprError( 'division_by_zero', self::NAMES[$op] );
 				}
@@ -653,9 +653,6 @@ class ExprParser {
 				$right = array_pop( $stack );
 				$left = array_pop( $stack );
 				$result = pow( $left, $right );
-				if ( $result === false ) {
-					throw new ExprError( 'division_by_zero', self::NAMES[$op] );
-				}
 				$stack[] = $result;
 				break;
 			case self::EXPR_SQRT:
